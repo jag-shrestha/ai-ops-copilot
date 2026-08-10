@@ -14,9 +14,11 @@ def read_report():
     return rep[:191]
 
 def statistical_analysis(report):
-    savings_sorted = report.sort_values(by = 'Total Savings: Current Bill Period', ascending = False).reset_index(drop = True)
-    top_5 = savings_sorted[:5]
-    bottom_5 = savings_sorted[-5:].reset_index(drop = True)
+    savings_sorted = (report.sort_values(by='Total Savings: Current Bill Period', ascending=False).reset_index(drop=True))
+    savings_sorted['rank'] = savings_sorted.index + 1
+    top_5 = savings_sorted.head(5)
+    bottom_5 = savings_sorted.tail(5)
+    
     max_savings = report.loc[report['Total Savings: Current Operating Year'].idxmax()]
     min_savings = report.loc[report['Total Savings: Current Operating Year'].idxmin()]
     
@@ -27,12 +29,12 @@ def statistical_analysis(report):
             top_5_performer =  [structures.Savings(system_name = row['System Name'],
                                           capacity= row['Power (kW)'],
                                           savings = row['Total Savings: Current Bill Period'],
-                                          rank = index + 1)
+                                          rank = row['rank'])
                                 for index, row in top_5.iterrows()],
             bottom_5_performer =  [structures.Savings(system_name = row['System Name'],
                                           capacity= row['Power (kW)'],
                                           savings = row['Total Savings: Current Bill Period'],
-                                          rank = index + 1)
+                                          rank = row['rank'])
                                 for index, row in bottom_5.iterrows()]
         )
     return hla
@@ -57,7 +59,7 @@ def calculate_site_health(report):
 
     report['Power (kW)'] = pd.to_numeric(report['Power (kW)'], errors='coerce')
 
-    avg_current_savings = report['Total Savings: Current Bill Period'].mean()
+    avg_current_savings = report['Total Savings: Current Bill Period'].mean() * 0.25
     avg_op_yr_savings = (report['Total Savings: Current Operating Year'].mean()) * 0.5
     p75_power = report['Power (kW)'].quantile(0.75)
 
@@ -79,7 +81,7 @@ def calculate_site_health(report):
     apply_penalty(report, mask, 20, "Large System and less savings for this bill period")
 
     # Lower operational-year savings
-    mask = (report['Total Savings: Current Bill Period'] < avg_op_yr_savings)
+    mask = (report['Total Savings: Current Operating Year'] < avg_op_yr_savings)
     apply_penalty(report, mask, 10, "Lesser than Average operational year savings")
 
     # New sitess
@@ -108,7 +110,7 @@ def calculate_site_health(report):
                     site_name = row['System Name'],
                     score = row['score'],
                     status = row['status'],
-                    reasons = row['reason'].split(","),
+                    reasons = row['reason'].split(",") if row['reason'] else [],
                     metrics = structures.Metrices(
                         capacity_kw = row['Power (kW)'],
                         report_period_savings = row['Total Savings: Current Bill Period'],
