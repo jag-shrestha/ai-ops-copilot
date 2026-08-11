@@ -25,18 +25,32 @@ class DataQuality(BaseModel):
     duplicate_sites: int = Field(gt=-1)
     
 class Metrices(BaseModel):
-    capacity_kw: float
+    total_sites: int
     report_period_savings: float
-    operating_year_savings: float 
+    operating_year_savings: float
+    negetive_savings_site : int
+    sites_marked_healthy : int
+    sites_marked_average : int
+    sites_marked_needs_attention : int
+    sites_marked_critical : int
+    new_sites: int
     
 class SiteHealth(BaseModel):
     site_name: str
     score: Optional[int]
     status: str
     reasons:List[str]
-    metrics: Metrices
+    # smetrics: Metrices
     
 class OverAllMatrix(BaseModel):
     data_quality : DataQuality
     statistical_performance : Analysis_Json
     site_wise_report : List[SiteHealth]
+
+class AIContent(BaseModel):
+    report_period : str
+    portfolio : Metrices
+    data_quality: DataQuality
+    top_performers: List[str]
+    sites_needing_attention : List[str]
+    critical_sites: List[str]

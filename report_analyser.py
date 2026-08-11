@@ -110,13 +110,13 @@ def calculate_site_health(report):
                     site_name = row['System Name'],
                     score = row['score'],
                     status = row['status'],
-                    reasons = row['reason'].split(",") if row['reason'] else [],
-                    metrics = structures.Metrices(
-                        capacity_kw = row['Power (kW)'],
-                        report_period_savings = row['Total Savings: Current Bill Period'],
-                        operating_year_savings = row['Total Savings: Current Operating Year']))
-                    for index, row in report.iterrows()]
-    return site_health
+                    reasons = row['reason'].split(",") if row['reason'] else [])
+                    # metrics = structures.Metrices(
+                    #     capacity_kw = row['Power (kW)'],
+                    #     report_period_savings = row['Total Savings: Current Bill Period'],
+                    #     operating_year_savings = row['Total Savings: Current Operating Year']))
+                     for index, row in report.iterrows()]
+    return site_health, report
 
 def report_overview():
     report = read_report()
@@ -126,3 +126,32 @@ def report_overview():
         site_wise_report = calculate_site_health(report))
     
     return overview.model_dump_json(indent = 2)
+
+def top_and_bottom_performing_sites(report):
+    savings_sorted = (report.sort_values(by='Total Savings: Current Bill Period', ascending=False).reset_index(drop=True))
+    savings_sorted['rank'] = savings_sorted.index + 1
+    return savings_sorted
+
+def create_stat_matrix(report):
+    _, report = calculate_site_health(report)
+    return structures.Metrices(
+        total_sites = len(report),
+        report_period_savings = report['Total Savings: Current Operating Year'].sum(),
+        operating_year_savings = report['Total Savings: Current Bill Period'].sum(),
+        negetive_savings_site = len(report[report['Total Savings: Current Bill Period'] < 0]),
+        sites_marked_healthy = len(report[report['status'] == 'Healthy']),
+        sites_marked_average = len(report[report['status'] == 'Average']),
+        sites_marked_needs_attention = len(report[report['status'] == 'Need Attention']),
+        sites_marked_critical = len(report[report['status'] == 'Critical']),
+        new_sites = len(report[report['status'] == 'New Site']))
+     
+def create_ai_ready_json():
+    report = read_report()
+    ai_json = structures.AIContent(
+        report_period = "2026_06",
+        portfolio = create_stat_matrix(report),
+        data_quality= data_quality_check(report),
+        top_performers= list(top_and_bottom_performing_sites(report)[:5]['System Name']),
+        sites_needing_attention= list(report[report['status'] == 'Need Attention']['System Name']),
+        critical_sites= list(report[report['status'] == 'Critical']['System Name']))
+    return ai_json.model_dump_json(indent= 2)
