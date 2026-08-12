@@ -28,7 +28,7 @@ class PortfolioMetrics(BaseModel):
     total_sites: int
     report_period_savings: float
     operating_year_savings: float
-    negative_savings_site : int
+    negative_savings_sites : int
     sites_marked_healthy : int
     sites_marked_average : int
     sites_marked_needs_attention : int

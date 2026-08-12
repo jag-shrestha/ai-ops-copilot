@@ -137,7 +137,7 @@ def create_stat_matrix(report):
         total_sites = len(report),
         report_period_savings = report['Total Savings: Current Bill Period'].sum(),
         operating_year_savings = report['Total Savings: Current Operating Year'].sum(),
-        negative_savings_site = len(report[report['Total Savings: Current Bill Period'] < 0]),
+        negative_savings_sites = len(report[report['Total Savings: Current Bill Period'] < 0]),
         sites_marked_healthy = len(report[report['status'] == 'Healthy']),
         sites_marked_average = len(report[report['status'] == 'Average']),
         sites_marked_needs_attention = len(report[report['status'] == 'Need Attention']),
@@ -147,7 +147,7 @@ def create_stat_matrix(report):
 def create_ai_ready_json():
     report = read_report()
     _, report = calculate_site_health(report)
-    
+    report = rank_sites(report)
     need_attention = report[report['status'] == 'Need Attention']
     critical = report[report['status'] == 'Critical']
     
