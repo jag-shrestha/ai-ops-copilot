@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 import structures
-from pandas import DateOffset
+from llm import client, prompts
+from structures import PortfolioInsight
 
 
 def read_report():
@@ -86,7 +87,7 @@ def calculate_site_health(report):
 
     # New sitess
     report['System Live Date'] = pd.to_datetime(report['System Live Date'], errors='coerce')
-    mask = report['System Live Date'] >= (pd.Timestamp.today().normalize() - DateOffset(months=2))
+    mask = report['System Live Date'] >= (pd.Timestamp.today().normalize() - pd.DateOffset(months=2))
     apply_penalty(report, mask, pd.NA, 'New site')
 
     # Ensure score stays between 0 and 100
@@ -165,3 +166,7 @@ def create_ai_ready_json():
                                                           reasons = row['reason'].split(",") if row['reason'] else [])
                                                           for index, row in critical.iterrows()])
     return ai_json.model_dump_json(indent= 2, exclude_none= True)
+
+def report_insights_from_AI():
+    ai_context = create_ai_ready_json()
+    ai_res = client.ask_llm(prompts.savings_report_prompt(ai_context), PortfolioInsight)

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 
 class SavingRow(BaseModel):
@@ -65,4 +65,16 @@ class AIContent(BaseModel):
     sites_needing_attention : List[SiteMarker]
     critical_sites: List[SiteMarker]
 
-
+class PortfolioInsight(BaseModel):
+    overall_assessment: str
+    key_findings: list[str] = Field(max_length=5)
+    areas_of_concern: list[SiteMarker]
+    positive_highlights: list[str] = Field(max_length=5)
+    recommendations: list[str] = Field(max_length=5)
+    
+    @field_validator("overall_assessment")
+    @classmethod
+    def validate_word_count(cls, value: str) -> str:
+        if len(value.split()) > 200:
+            raise ValueError("overall_assessment must not exceed 200 words")
+        return value
