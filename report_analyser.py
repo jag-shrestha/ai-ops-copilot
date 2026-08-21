@@ -170,3 +170,4 @@ def create_ai_ready_json():
 def report_insights_from_AI():
     ai_context = create_ai_ready_json()
     ai_res = client.ask_llm(prompts.savings_report_prompt(ai_context), PortfolioInsight)
+    return ai_res['parser'].model_dump_json(indent = 2s)
