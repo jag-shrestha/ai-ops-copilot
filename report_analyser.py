@@ -2,8 +2,10 @@ import pandas as pd
 import numpy as np
 import structures
 from llm import client, prompts
-from structures import PortfolioInsight
-
+from structures import PortfolioInsight, SemanticValidation
+import json
+from difflib import get_close_matches, SequenceMatcher
+import re
 
 def read_report():
     rep = pd.read_excel("data/Report 1.xlsx")
@@ -165,9 +167,145 @@ def create_ai_ready_json():
         critical_sites= [structures.SiteMarker(site_name = row['System Name'],
                                                           reasons = row['reason'].split(",") if row['reason'] else [])
                                                           for index, row in critical.iterrows()])
-    return ai_json.model_dump_json(indent= 2, exclude_none= True)
+    return ai_json.model_dump_json(indent= 2, exclude_none= True), report
+
+
+def get_all_valid_sites(context):
+    site_names = []
+
+    if isinstance(context, dict):
+        for key, value in context.items():
+            if key == "site_name":
+                site_names.append(value)
+            else:
+                site_names.extend(get_all_valid_sites(value))
+
+    elif isinstance(context, list):
+        for item in context:
+            site_names.extend(get_all_valid_sites(item))
+    return site_names
+
+def validate_sites(insight, context, error):
+    context = json.loads(context)
+    valid_sites = get_all_valid_sites(context)
+    invalid_sites = [] 
+    for concern in insight['areas_of_concern']:
+        if concern['site_name'] not in valid_sites:
+            invalid_sites.append(concern['site_name'])
+    if len(invalid_sites) > 0: error['Invalid sites'] = invalid_sites
+    return error
+
+def validate_fact_values(insight, context, error):
+    for finding in insight:
+        fact_type = finding['fact_type']
+        fact_value = finding['fact_value']
+        value = float(re.sub(r'[^\d.-]', '', fact_value))
+        value = round(value, 2)
+        value_from_context = find_closest_fact(fact_type, context)
+        value_from_context = round(value_from_context, 2)
+        if abs(value_from_context - value) > 0.01:
+            error.setdefault('Invalid Fact', []).append(finding)
+    return error
+
+def find_closest_fact(fact_type, context):
+    best_match = None
+    best_score = 0
+
+    def search(obj):
+        nonlocal best_match, best_score
+
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                score = SequenceMatcher(None, fact_type, key).ratio()
+                if score > best_score:
+                    best_score = score
+                    best_match = {'key': key, 'value': value, 'score': score}
+                search(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                search(item)
+
+    search(context)
+
+    return best_match['value']
+
+def validate_result_structure(insight, error):
+    from pydantic import ValidationError
+    try:
+        result = PortfolioInsight.model_validate(insight)
+    except ValidationError as e:
+        error['Follows Pydentic Structure'] = False
+    finally: return error
+    
+def validate_fact_types(insight, facts, error):
+    valid_facts = set(facts)
+    for finding in insight.get("key_findings", []):
+        fact_type = finding.get("fact_type")
+        if fact_type not in valid_facts:
+            error.setdefault("Invalid Fact Type", []).append(finding)
+    for highlight in insight.get("positive_highlights", []):
+        fact_type = highlight.get("fact_type")
+        if fact_type not in valid_facts:
+            error.setdefault("Invalid Fact Type", []).append(highlight)
+    return error
 
 def report_insights_from_AI():
-    ai_context = create_ai_ready_json()
-    ai_res = client.ask_llm(prompts.savings_report_prompt(ai_context), PortfolioInsight)
-    return ai_res['parser'].model_dump_json(indent = 2)
+    ai_context, report = create_ai_ready_json()
+    context = json.loads(ai_context)
+    facts = list(set(context['portfolio'].keys()) | set(context['data_quality'].keys()))
+    ai_res = client.ask_llm(prompts.savings_report_prompt(ai_context, facts), PortfolioInsight)
+    
+    #mandatory Hard Validations - If failed no use validating results further.
+    bad_result, insight = hard_validations(ai_res, ai_context, facts, context)
+    if len(bad_result) > 0: 
+        print(f"Hard Validation failed. Errors occured : \n{bad_result}")
+        raise ValueError(f"Hard validation failed: {bad_result}")
+    
+    #Factual validations - Validating Numbers
+    invalid_facts = {}
+    invalid_facts = validate_fact_values(insight['key_findings'], context, invalid_facts)
+    invalid_facts = validate_fact_values(insight['positive_highlights'], context, invalid_facts)
+    
+    if len(invalid_facts['Invalid Fact']) > 0:
+        print(f"Invalid facts are returned by the AI.\n{invalid_facts}")
+        
+    expected_site_reasons = {row["System Name"]: [reason.strip() for reason in row["reason"].split(",") if reason.strip()]
+                             for _, row in report.iterrows() if row["reason"]}
+    ai_site_reasons = {}
+    for section in ["areas_of_concern"]:
+        for site in insight.get(section, []):
+            ai_site_reasons[site["site_name"]] = site["reasons"]
+            
+    semantic_input = {}
+    print(f"Processing {len(ai_site_reasons)} items marked in areas of concern")    
+    for site_name, ai_reasons in ai_site_reasons.items():
+        expected_reasons_for_site = expected_site_reasons.get(site_name, [])
+        for reason in ai_reasons:
+            if reason not in expected_reasons_for_site:
+                semantic_input[site_name] = {"ai_reasons": reason, "expected_reasons": expected_site_reasons[site_name]}
+    
+    if len(semantic_input) > 0: validator_res = validate_sementics(semantic_input)
+    else: print("All strings matched exactly, no AI validation required")
+    
+    semantic_failure = {}
+    for result in validator_res['results']:
+        for res in result['results']:
+            if res['equivalent'] == False:
+                semantic_failure.setdefault(result['site_name'], []).append(res)
+    
+        if len(semantic_failure) > 0:
+            print(f"Invalid facts are returned by the AI.\n{semantic_failure}")
+            
+            
+def validate_sementics(semantic_input):
+    validator_res = client.ask_llm(prompts.sementic_validatior(semantic_input), SemanticValidation)
+    return json.loads(validator_res.parsed.model_dump_json(indent = 2))
+    
+def hard_validations(ai_res, ai_context, facts, context):   
+    error = {}
+    try: insight = json.loads(ai_res.parsed.model_dump_json(indent = 2))
+    except: error['Valid Json'] = False
+    error = validate_result_structure(insight, error)
+    error = validate_sites(insight, ai_context, error)
+    error = validate_fact_types(insight, facts, error)
+    return error, insight

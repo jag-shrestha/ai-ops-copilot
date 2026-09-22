@@ -64,17 +64,47 @@ class AIContent(BaseModel):
     top_performers: List[SiteMarker]
     sites_needing_attention : List[SiteMarker]
     critical_sites: List[SiteMarker]
+    
+class Finding(BaseModel):
+    statement: str
+    fact_type: str
+    fact_value: str
+
+
+class SiteConcern(BaseModel):
+    site_name: str
+    reasons: list[str]
+
+
+class Recommendation(BaseModel):
+    recommendation: str
+    reasons: list[str]
+
 
 class PortfolioInsight(BaseModel):
     overall_assessment: str
-    key_findings: list[str] = Field(max_length=5)
-    areas_of_concern: list[SiteMarker]
-    positive_highlights: list[str] = Field(max_length=5)
-    recommendations: list[str] = Field(max_length=5)
-    
+    key_findings: list[Finding]
+    areas_of_concern: list[SiteConcern]
+    positive_highlights: list[Finding]
+    recommendations: list[Recommendation]
+
     @field_validator("overall_assessment")
     @classmethod
     def validate_word_count(cls, value: str) -> str:
         if len(value.split()) > 200:
             raise ValueError("overall_assessment must not exceed 200 words")
         return value
+
+class ReasonValidation(BaseModel):
+    ai_reason: str
+    expected_reason: str | None
+    equivalent: bool
+    explanation: str
+
+class SiteReasonValidation(BaseModel):
+    site_name: str
+    results: list[ReasonValidation]
+
+
+class SemanticValidation(BaseModel):
+    results: list[SiteReasonValidation]
